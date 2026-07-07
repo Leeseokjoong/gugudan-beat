@@ -1273,22 +1273,45 @@ function draw(ts) {
     ctx.restore();
   }
 
-  // hit line + lane receptors
+  // judgment zone band — the strip where PERFECT presses land
   ctx.save();
-  ctx.shadowBlur = 12 + pulse * 18;
+  {
+    const fdNow = stepDur() * 16;
+    const yPerf = perspY(perspS(1 - 0.14 / fdNow));
+    const zoneH = Math.min(46, Math.max(10, hy - yPerf));
+    const zb = ctx.createLinearGradient(0, hy - zoneH, 0, hy + zoneH);
+    zb.addColorStop(0, 'rgba(138,160,255,0)');
+    zb.addColorStop(0.5, `rgba(138,160,255,${0.15 + pulse * 0.08})`);
+    zb.addColorStop(1, 'rgba(138,160,255,0)');
+    ctx.fillStyle = zb;
+    ctx.fillRect(4, hy - zoneH, w - 8, zoneH * 2);
+  }
+  // core hit line
+  ctx.shadowBlur = 16 + pulse * 18;
   ctx.shadowColor = '#8aa0ff';
-  ctx.strokeStyle = `rgba(170,185,255,${0.8 + pulse * 0.2})`;
-  ctx.lineWidth = 2.5 + pulse * 1.5;
+  ctx.strokeStyle = `rgba(190,205,255,${0.9 + pulse * 0.1})`;
+  ctx.lineWidth = 3.5 + pulse * 1.5;
   ctx.beginPath(); ctx.moveTo(4, hy); ctx.lineTo(w - 4, hy); ctx.stroke();
   ctx.shadowBlur = 0;
+
+  // lane receptors: tile-sized sockets — press when the note fills its socket
   for (let l = 0; l < 4; l++) {
     const flash = AC ? Math.max(0, 1 - (now - (G.padFlash[l] || 0)) / 0.18) : 0;
-    const rw = (w / 4) * 0.8, rh = 13;
-    ctx.fillStyle = LANE_COLORS[l] + (flash > 0 ? '55' : '18');
-    ctx.strokeStyle = LANE_COLORS[l] + (flash > 0 ? 'ff' : '66');
-    ctx.lineWidth = 1.5 + flash * 2;
-    ctx.shadowBlur = flash * 18; ctx.shadowColor = LANE_COLORS[l];
-    roundRect(ctx, laneCX(l, 1) - rw / 2, hy - rh / 2, rw, rh, 6);
+    let armed = 0; // lights up while a note sits in the timing window
+    if (AC && G.state === 'playing') {
+      for (const n of G.notes) {
+        if (n.type !== 'answer' || n.judged || n.lane !== l) continue;
+        const a = 1 - Math.abs(n.hitTime - now) / 0.15;
+        if (a > armed) armed = a;
+      }
+    }
+    const glow = Math.max(flash, armed);
+    const rw = (w / 4) * 0.84, rh = 38;
+    ctx.fillStyle = LANE_COLORS[l] + (glow > 0.01 ? '30' : '0e');
+    ctx.strokeStyle = LANE_COLORS[l] + (glow > 0.01 ? 'ff' : '88');
+    ctx.lineWidth = 2 + glow * 2.5;
+    ctx.shadowBlur = glow * 26; ctx.shadowColor = LANE_COLORS[l];
+    roundRect(ctx, laneCX(l, 1) - rw / 2, hy - rh / 2, rw, rh, 9);
     ctx.fill(); ctx.stroke();
   }
   ctx.restore();
