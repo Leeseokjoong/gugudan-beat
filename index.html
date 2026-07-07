@@ -369,7 +369,8 @@
     <div class="hint">
       문제 배너가 내려와 판정선 아래에 자리 잡고, 답 노트들이 뒤따라 내려옵니다.<br>
       <b style="color:#8aa0ff">정답 숫자만</b> 판정선에 닿는 순간 그 레인을 치세요. 오답 숫자는 그냥 보내면 됩니다.<br>
-      꼬리 달린 롱노트는 끝까지 홀드! &nbsp;·&nbsp; 키보드 A W S D / 터치 (동시 입력 OK)
+      롱노트는 끝까지 홀드, <b style="color:#fff">흰 줄로 이어진 노트는 두 개를 동시에!</b><br>
+      레벨이 오르면 연타·동시치기가 등장해요 &nbsp;·&nbsp; 키보드 A W S D / 터치
     </div>
   </div>
 
@@ -665,19 +666,19 @@ function flourish(t) {
 
 // ---------- songs (real BGM tracks) ----------
 const SONGS = [
-  { name: '내장 신스', file: null },
+  { name: '내장 신스', file: null, level: 1 },
   // backing tracks (no lead) — correct hits unlock the melody on top
-  { name: 'A Minor Pulse', file: 'music/A Minor Pulse.mp3', backing: true },
-  { name: 'A Minor Pulse v2', file: 'music/A Minor Pulse (1).mp3', backing: true },
-  { name: 'Arcade Fault Line', file: 'music/Arcade Fault Line.mp3', backing: true },
-  { name: 'Arcade Fault Line v2', file: 'music/Arcade Fault Line (1).mp3', backing: true },
+  { name: 'A Minor Pulse', file: 'music/A Minor Pulse.mp3', backing: true, level: 4 },
+  { name: 'A Minor Pulse v2', file: 'music/A Minor Pulse (1).mp3', backing: true, level: 3 },
+  { name: 'Arcade Fault Line', file: 'music/Arcade Fault Line.mp3', backing: true, level: 5 },
+  { name: 'Arcade Fault Line v2', file: 'music/Arcade Fault Line (1).mp3', backing: true, level: 6 },
   // full mixes
-  { name: 'Beat Circuit', file: 'music/Beat Circuit.mp3' },
-  { name: 'Beat Circuit v2', file: 'music/Beat Circuit (1).mp3' },
-  { name: 'Neon Overdrive', file: 'music/Neon Overdrive.mp3' },
-  { name: 'Neon Overdrive v2', file: 'music/Neon Overdrive (1).mp3' },
-  { name: 'Overclock Arena', file: 'music/Overclock Arena.mp3' },
-  { name: 'Overclock Arena v2', file: 'music/Overclock Arena (1).mp3' },
+  { name: 'Beat Circuit', file: 'music/Beat Circuit.mp3', level: 3 },
+  { name: 'Beat Circuit v2', file: 'music/Beat Circuit (1).mp3', level: 2 },
+  { name: 'Neon Overdrive', file: 'music/Neon Overdrive.mp3', level: 5 },
+  { name: 'Neon Overdrive v2', file: 'music/Neon Overdrive (1).mp3', level: 5 },
+  { name: 'Overclock Arena', file: 'music/Overclock Arena.mp3', level: 8 },
+  { name: 'Overclock Arena v2', file: 'music/Overclock Arena (1).mp3', level: 7 },
 ];
 let songSel = 1;
 let song = null; // {buffer,bpm,beatOffset,source,rate,anchorT,anchorPos}
@@ -1043,55 +1044,81 @@ const rnd = n => Math.floor(Math.random() * n);
 // rhythm patterns (8th-note offsets after the banner) — correct notes (c)
 // form musical grooves: on-beat marches, offbeat gallops, rolled runs
 const PATTERNS = [
-  [ // tier 0 — on-beat marches
+  [ // tier 0 — on-beat marches, taps only
     { c: [8, 12], w: [4] },
     { c: [4, 8, 12], w: [] },
     { c: [4, 12], w: [8] },
+    { c: [8], w: [4, 12] },
   ],
-  [ // tier 1 — pairs & offbeats (nothing before step 4: time to read & think)
+  [ // tier 1 — pairs & offbeats + a hold (nothing before step 4: read time)
     { c: [6, 8, 12], w: [4] },
     { c: [4, 8, 10], w: [12] },
     { c: [8, 12, 14], w: [4, 6] },
     { c: [4, 6, 12], w: [8, 10] },
   ],
-  [ // tier 2 — runs & gallops
-    { c: [8, 10, 12, 14], w: [4, 6] },
+  [ // tier 2 — streams (adjacent runs) & gallops
+    { c: [8, 9, 10], w: [4, 14] },          // triple stream
     { c: [4, 6, 8, 12], w: [10, 14] },
-    { c: [6, 8, 10], w: [4, 12, 14] },
-    { c: [4, 8, 10, 14], w: [6, 12] },
+    { c: [8, 10, 12, 13, 14], w: [4] },     // run into the line
+    { c: [4, 5, 6, 12], w: [9, 14] },
+  ],
+  [ // tier 3 — doubles (동시 2키) + dense streams
+    { c: [8, 9, 10, 11], w: [4], dbl: [8] },
+    { c: [4, 6, 8, 10, 12, 14], w: [], dbl: [12] },
+    { c: [8, 9, 10, 12, 13, 14], w: [4], dbl: [] },
+    { c: [4, 5, 6, 10, 11, 12], w: [14], dbl: [6, 12] },
   ],
 ];
 function densityTier() {
   if (G.mode === 'course') {
-    if (G.stage === 'mixed') return 2;
+    if (G.stage === 'mixed') return 3;
+    if (G.stage === 'mixdan') return 2;
     return G.curDan <= 4 ? 0 : G.curDan <= 7 ? 1 : 2;
   }
-  return Math.min(2, Math.floor(G.correct / 20));
+  // free mode: the chosen song's level sets the note-type variety
+  const lv = (song && song.level) || 1;
+  return lv <= 2 ? 0 : lv <= 4 ? 1 : lv <= 6 ? 2 : 3;
 }
 
+function mkAnswer(k, lane, isC, q, pid, tLine, effStep, fallDur, long, holdLen, dbl, dblLane) {
+  return {
+    type: 'answer', lane, pid,
+    value: (isC || q.reveal) ? q.ans : q.wrong[rnd(q.wrong.length)],
+    ans: q.ans, q: q.text,
+    hitTime: tLine + effStep * k, fallDur,
+    judged: false, holding: false,
+    long, holdDur: effStep * holdLen,
+    dbl: !!dbl, dblLane: dbl ? dblLane : -1,
+  };
+}
 function spawnPhrase(tLine, effStep) {
   const q = nextQuestion();
   const fallDur = effStep * 16;
-  const pats = PATTERNS[densityTier()];
-  const pat = pats[rnd(pats.length)];
+  const tier = densityTier();
+  const pat = PATTERNS[tier][rnd(PATTERNS[tier].length)];
+  const dblKs = (!q.reveal && pat.dbl) ? pat.dbl : [];   // simultaneous 2-key notes
   G.pidSeq = (G.pidSeq || 0) + 1;
   const pid = G.pidSeq;
   G.notes.push({
     type: 'question', pid, q: q.text, ans: q.ans, reveal: !!q.reveal,
     hitTime: tLine, fallDur, judged: false,
-    totalC: q.reveal ? pat.c.length + pat.w.length : pat.c.length, // notes to clear
+    totalC: (q.reveal ? pat.c.length + pat.w.length : pat.c.length) + dblKs.length,
     hits: 0, misses: 0,
   });
-  // long note only where its tail clears before the next phrase's notes
-  const longCands = pat.c.filter(k => k <= 10);
-  const longK = Math.random() < 0.3 && longCands.length ? longCands[rnd(longCands.length)] : -1;
 
-  // lanes for correct notes: adjacent 8ths become a lane roll (da-da-da!)
+  // hold note: longer tails at high tiers; skip steps too near the end
+  const holdLen = tier >= 3 ? 6 : 4;
+  const longCands = pat.c.filter(k => k <= 14 - holdLen && !dblKs.includes(k));
+  const holdProb = tier === 0 ? 0.15 : 0.32;
+  const longK = Math.random() < holdProb && longCands.length ? longCands[rnd(longCands.length)] : -1;
+
+  // lanes for correct notes: adjacent steps snake across lanes (rolls)
   const laneOf = {};
   let prevK = -99, prevLane = rnd(4);
   for (const k of [...pat.c].sort((a, b) => a - b)) {
     let lane;
-    if (k - prevK <= 2) lane = (prevLane + 1) % 4;
+    if (k - prevK <= 1) lane = (prevLane + 1) % 4;               // tight roll
+    else if (k - prevK <= 2) lane = (prevLane + (rnd(2) ? 1 : 3)) % 4;
     else { lane = rnd(4); if (lane === prevLane) lane = (lane + 2) % 4; }
     laneOf[k] = lane; prevK = k; prevLane = lane;
   }
@@ -1108,15 +1135,12 @@ function spawnPhrase(tLine, effStep) {
       if (k <= holdUntil && lane === holdLane) lane = (lane + 1) % 4;
     }
     const long = isC && k === longK;
-    if (long) { holdLane = lane; holdUntil = k + 4; }
-    G.notes.push({
-      type: 'answer', lane, pid,
-      value: (isC || q.reveal) ? q.ans : q.wrong[rnd(q.wrong.length)],
-      ans: q.ans, q: q.text,
-      hitTime: tLine + effStep * k, fallDur,
-      judged: false, holding: false,
-      long, holdDur: effStep * 4,
-    });
+    if (long) { holdLane = lane; holdUntil = k + holdLen; }
+    const isDbl = isC && dblKs.includes(k);
+    const partner = isDbl ? (lane + 2) % 4 : -1;
+    G.notes.push(mkAnswer(k, lane, isC, q, pid, tLine, effStep, fallDur, long, holdLen, isDbl, partner));
+    if (isDbl) // second half: same time, opposite lane, also correct → press both
+      G.notes.push(mkAnswer(k, partner, true, q, pid, tLine, effStep, fallDur, false, holdLen, true, lane));
     lastLane = lane;
   }
 }
@@ -1611,6 +1635,13 @@ function draw(ts) {
         ctx.lineTo(xB + hwBack, yB); ctx.lineTo(xB - hwBack, yB);
         ctx.closePath(); ctx.fill();
       }
+      if (n.dbl && n.dblLane > n.lane) { // connector bar for a double note (press both!)
+        const x2 = laneCX(n.dblLane, s);
+        ctx.strokeStyle = `rgba(255,255,255,${0.5 + near * 0.4})`;
+        ctx.lineWidth = 3 + near * 3; ctx.shadowBlur = 14; ctx.shadowColor = '#fff';
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y); ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
       if (n.long) { // perspective tail ribbon
         const pT = p - n.holdDur / n.fallDur;
         const s2 = perspS(Math.max(0, pT)), y2 = perspY(s2);
@@ -1624,10 +1655,10 @@ function draw(ts) {
         ctx.closePath(); ctx.fill(); ctx.stroke();
       }
       ctx.shadowBlur = (8 + near * 22) * s;
-      ctx.shadowColor = col;
+      ctx.shadowColor = n.dbl ? '#ffffff' : col;
       ctx.fillStyle = col;
-      ctx.strokeStyle = `rgba(255,255,255,${0.5 + near * 0.5})`;
-      ctx.lineWidth = 1 + near * 1.5;
+      ctx.strokeStyle = n.dbl ? '#ffffff' : `rgba(255,255,255,${0.5 + near * 0.5})`;
+      ctx.lineWidth = n.dbl ? 2.5 + near * 2 : 1 + near * 1.5;
       roundRect(ctx, x - tw / 2, y - th / 2, tw, th, 6 * s + 3);
       ctx.fill(); ctx.stroke();
       ctx.shadowBlur = 0;
@@ -1754,7 +1785,8 @@ const songGrid = el('songGrid');
 SONGS.forEach((s, i) => {
   const b = document.createElement('button');
   b.className = 'songBtn' + (i === songSel ? ' on' : '');
-  b.innerHTML = `${s.name}<small>${s.file ? (s.backing ? '반주 + 내가 멜로디 연주' : '완성곡') : '게임 내장 음악'}</small>`;
+  const kind = s.file ? (s.backing ? '연주형' : '완성곡') : '내장';
+  b.innerHTML = `${s.name}<small>Lv.${s.level} · ${kind}</small>`;
   b.addEventListener('click', async () => {
     songSel = i;
     [...songGrid.children].forEach((x, j) => x.classList.toggle('on', j === songSel));
@@ -1763,12 +1795,12 @@ SONGS.forEach((s, i) => {
       try {
         initAudio();
         const d = await loadSong(i);
-        b.querySelector('small').textContent = `BPM ${d.bpm}${s.backing ? ' · 연주형' : ''}`;
+        b.querySelector('small').textContent = `Lv.${s.level} · BPM ${d.bpm}`;
       } catch (e) {
-        b.querySelector('small').textContent = '로드 실패 (서버 필요)';
+        b.querySelector('small').textContent = `Lv.${s.level} · 로드 실패`;
       }
     } else if (songCache[i]) {
-      b.querySelector('small').textContent = `BPM ${songCache[i].bpm}`;
+      b.querySelector('small').textContent = `Lv.${s.level} · BPM ${songCache[i].bpm}`;
     }
   });
   songGrid.appendChild(b);
@@ -1787,7 +1819,8 @@ async function startGame() {
     btn.textContent = 'LOADING...'; btn.disabled = true;
     try {
       const d = await loadSong(songSel);
-      song = { ...d, backing: !!SONGS[songSel].backing, source: null, rate: 1, anchorT: 0, anchorPos: 0 };
+      song = { ...d, backing: !!SONGS[songSel].backing, level: SONGS[songSel].level || 1,
+               source: null, rate: 1, anchorT: 0, anchorPos: 0 };
     } catch (e) { song = null; } // fetch blocked (file://) → fall back to synth
     btn.textContent = 'START'; btn.disabled = false;
   }
