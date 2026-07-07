@@ -109,7 +109,7 @@
     background:rgba(4,5,12,.94); backdrop-filter:blur(6px);
     display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
     color:#e8ecff; text-align:center; padding:24px;
-    overflow-y:auto; /* tall content (free mode) scrolls instead of clipping */
+    overflow-y:auto; overflow-x:hidden; /* tall content scrolls; never sideways */
   }
   .overlay > :first-child { margin-top:auto; } /* center when it fits */
   .overlay > :last-child { margin-bottom:auto; }
