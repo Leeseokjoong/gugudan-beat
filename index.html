@@ -1598,15 +1598,36 @@ function setMode(m) {
   el('freeOpts').classList.toggle('hidden', m !== 'free');
 }
 const danGrid = el('danGrid');
+function refreshDanButtons() {
+  [...danGrid.children].forEach(x => {
+    if (x.dataset.dan) x.classList.toggle('on', G.dans.has(+x.dataset.dan));
+    else x.classList.toggle('on', G.dans.size === 8);
+  });
+}
 for (let d = 2; d <= 9; d++) {
   const b = document.createElement('button');
   b.className = 'danBtn on'; b.textContent = d + '단'; b.dataset.dan = d;
   b.addEventListener('click', () => {
     const dan = +b.dataset.dan;
-    if (G.dans.has(dan)) {
-      if (G.dans.size === 1) return;
-      G.dans.delete(dan); b.classList.remove('on');
-    } else { G.dans.add(dan); b.classList.add('on'); }
+    if (G.dans.size === 8) {
+      // everything was on → player wants to practice JUST this dan
+      G.dans.clear(); G.dans.add(dan);
+    } else if (G.dans.has(dan)) {
+      if (G.dans.size === 1) return; // keep at least one
+      G.dans.delete(dan);
+    } else {
+      G.dans.add(dan);
+    }
+    refreshDanButtons();
+  });
+  danGrid.appendChild(b);
+}
+{ // "전체" button — back to all dans
+  const b = document.createElement('button');
+  b.className = 'danBtn on'; b.textContent = '전체';
+  b.addEventListener('click', () => {
+    for (let d = 2; d <= 9; d++) G.dans.add(d);
+    refreshDanButtons();
   });
   danGrid.appendChild(b);
 }
