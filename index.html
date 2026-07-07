@@ -188,10 +188,10 @@
   <canvas id="cv"></canvas>
 
   <div id="pads">
-    <button class="pad" style="--lc:#22d3ee" data-i="0">D</button>
-    <button class="pad" style="--lc:#a78bfa" data-i="1">F</button>
-    <button class="pad" style="--lc:#f472b6" data-i="2">J</button>
-    <button class="pad" style="--lc:#fbbf24" data-i="3">K</button>
+    <button class="pad" style="--lc:#22d3ee" data-i="0">A</button>
+    <button class="pad" style="--lc:#a78bfa" data-i="1">W</button>
+    <button class="pad" style="--lc:#f472b6" data-i="2">S</button>
+    <button class="pad" style="--lc:#fbbf24" data-i="3">D</button>
   </div>
 
   <!-- start -->
@@ -224,7 +224,7 @@
     <div class="hint">
       문제 배너가 내려와 판정선 아래에 자리 잡고, 답 노트들이 뒤따라 내려옵니다.<br>
       <b style="color:#8aa0ff">정답 숫자만</b> 판정선에 닿는 순간 그 레인을 치세요. 오답 숫자는 그냥 보내면 됩니다.<br>
-      꼬리 달린 롱노트는 끝까지 홀드! &nbsp;·&nbsp; 키보드 D F J K (양손) / 터치
+      꼬리 달린 롱노트는 끝까지 홀드! &nbsp;·&nbsp; 키보드 A W S D / 터치 (동시 입력 OK)
     </div>
   </div>
 
@@ -273,6 +273,7 @@ const G = {
   hearts: 5, correct: 0, total: 0,
   jc: { PERFECT: 0, GOOD: 0, MISS: 0 },
   notes: [], effects: [], review: [],
+  padFlash: [0, 0, 0, 0], lastCorrectPress: 0, pidSeq: 0,
   dans: new Set([2, 3, 4, 5, 6, 7, 8, 9]),
   // course progression: memorize → test per dan, then mixdan → mixed
   curDan: 2, curB: 1, stage: 'memorize',
@@ -823,10 +824,16 @@ function densityTier() {
 function spawnPhrase(tLine, effStep) {
   const q = nextQuestion();
   const fallDur = effStep * 16;
-  G.notes.push({ type: 'question', q: q.text, ans: q.ans, reveal: !!q.reveal, hitTime: tLine, fallDur, judged: false });
-
   const pats = PATTERNS[densityTier()];
   const pat = pats[rnd(pats.length)];
+  G.pidSeq = (G.pidSeq || 0) + 1;
+  const pid = G.pidSeq;
+  G.notes.push({
+    type: 'question', pid, q: q.text, ans: q.ans, reveal: !!q.reveal,
+    hitTime: tLine, fallDur, judged: false,
+    totalC: q.reveal ? pat.c.length + pat.w.length : pat.c.length, // notes to clear
+    hits: 0, misses: 0,
+  });
   // long note only where its tail clears before the next phrase's notes
   const longCands = pat.c.filter(k => k <= 10);
   const longK = Math.random() < 0.3 && longCands.length ? longCands[rnd(longCands.length)] : -1;
@@ -855,7 +862,7 @@ function spawnPhrase(tLine, effStep) {
     const long = isC && k === longK;
     if (long) { holdLane = lane; holdUntil = k + 4; }
     G.notes.push({
-      type: 'answer', lane,
+      type: 'answer', lane, pid,
       value: (isC || q.reveal) ? q.ans : q.wrong[rnd(q.wrong.length)],
       ans: q.ans, q: q.text,
       hitTime: tLine + effStep * k, fallDur,
@@ -906,6 +913,7 @@ function pressPad(i, source) {
   if (G.state !== 'playing' || !AC) return;
   const now = AC.currentTime;
   keySound(i, now);
+  G.padFlash[i] = now;
   const pel = padEls[i];
   pel.classList.add('hitting');
   setTimeout(() => pel.classList.remove('hitting'), 90);
@@ -920,8 +928,12 @@ function pressPad(i, source) {
   }
   if (!best || bestAdt > 0.45) return; // air press — free play
 
+  // simultaneous-press grace: a stray finger alongside a correct hit is free
+  if (best.value !== best.ans && now - (G.lastCorrectPress || 0) < 0.12) return;
+
   G.total++;
   if (best.value === best.ans) {
+    G.lastCorrectPress = now;
     judgeNote(best, bestAdt <= 0.14 ? 'PERFECT' : 'GOOD', pel, false, best.hitTime - now);
     if (best.long) beginHold(best, i, source || 'pointer');
   } else {
@@ -966,6 +978,22 @@ function judgeNote(note, verdict, pel, wrongPress, dt) {
     if (!(G.mode === 'course' && G.stage === 'memorize') &&
         !G.review.some(r => r.text === note.q)) {
       G.review.push({ text: note.q, ans: note.ans, delay: 2 });
+    }
+  }
+
+  // phrase bookkeeping on the docked banner — clear it clean and it shatters
+  const qn = G.notes.find(x =>
+    x.type === 'question' && x.docked && !x.undockAt && x.pid === note.pid);
+  if (qn) {
+    if (verdict === 'MISS') qn.misses++;
+    else {
+      qn.hits++;
+      if (qn.hits >= qn.totalC && qn.misses === 0) {
+        qn.undockAt = t;
+        qn.shatter = true;
+        shatterBanner(qn);
+        G.score += 200;
+      }
     }
   }
 
@@ -1055,6 +1083,24 @@ const H = () => cv.height / devicePixelRatio;
 const hitLineY = () => H() * 0.86;
 const laneX = l => W() / 4 * l + W() / 8;
 
+function shatterBanner(qn) { // solved! the docked equation breaks apart
+  const w = W(), h = H(), hy = hitLineY();
+  const y = hy + (h - hy) * 0.5;
+  const colors = qn.reveal
+    ? ['#1d8f66', '#34d399', '#0f4d33']
+    : ['#4553b8', '#8aa0ff', '#232a66'];
+  for (let i = 0; i < 20; i++) {
+    G.effects.push({
+      kind: 'shard',
+      x: 8 + Math.random() * (w - 16), y: y + (Math.random() - 0.5) * 44,
+      vx: (Math.random() - 0.5) * 520, vy: -Math.random() * 380 - 60,
+      rot: Math.random() * 6.3, vr: (Math.random() - 0.5) * 12,
+      w: 12 + Math.random() * 26, h: 8 + Math.random() * 14,
+      life: 1, color: colors[i % 3],
+    });
+  }
+  crash(AC.currentTime, 0.35);
+}
 function burst(x, y, color, count) {
   for (let i = 0; i < count; i++) {
     G.effects.push({
@@ -1087,40 +1133,61 @@ function draw(ts) {
   const now = AC ? AC.currentTime : 0;
   const pulse = AC ? Math.max(0, 1 - (now - G.lastBeatFlash) * 4) : 0;
 
-  // lane guides
-  for (let i = 0; i < 4; i++) {
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(1, LANE_COLORS[i] + (pulse > 0.5 ? '14' : '0d'));
-    ctx.fillStyle = g;
-    ctx.fillRect(w / 4 * i + 1, 0, w / 4 - 2, h);
-    if (i) {
-      ctx.strokeStyle = 'rgba(140,150,220,0.08)';
-      ctx.beginPath(); ctx.moveTo(w / 4 * i, 0); ctx.lineTo(w / 4 * i, h); ctx.stroke();
-    }
-  }
+  // ---------- perspective highway ----------
+  const ZFAR = 5, HORIZON = 6;
+  const perspS = p => 1 / Math.max(0.55, 1 + (ZFAR - 1) * (1 - p)); // width scale
+  const perspY = s => HORIZON + (hy - HORIZON) * ((s - 1 / ZFAR) / (1 - 1 / ZFAR));
+  const laneCX = (l, s) => w / 2 + (l - 1.5) * (w / 4) * s;
+  const edgeX = (k, s) => w / 2 + (k - 2) * (w / 4) * s;
+  const sTop = perspS(0);
 
-  // scrolling beat grid — quarter-note lines, brighter on measure starts
+  // highway body
+  ctx.save();
+  const road = ctx.createLinearGradient(0, HORIZON, 0, hy);
+  road.addColorStop(0, 'rgba(30,34,70,0)');
+  road.addColorStop(0.5, 'rgba(24,28,62,0.55)');
+  road.addColorStop(1, `rgba(30,36,84,${0.72 + pulse * 0.15})`);
+  ctx.fillStyle = road;
+  ctx.beginPath();
+  ctx.moveTo(edgeX(0, sTop), HORIZON);
+  ctx.lineTo(edgeX(4, sTop), HORIZON);
+  ctx.lineTo(edgeX(4, 1.06), perspY(1.06));
+  ctx.lineTo(edgeX(0, 1.06), perspY(1.06));
+  ctx.closePath(); ctx.fill();
+
+  // lane divider rails converging on the vanishing point
+  for (let k = 0; k <= 4; k++) {
+    const outer = k === 0 || k === 4;
+    ctx.strokeStyle = outer
+      ? `rgba(150,165,255,${0.5 + pulse * 0.3})`
+      : 'rgba(140,150,220,0.22)';
+    ctx.lineWidth = outer ? 2.5 : 1.2;
+    ctx.shadowBlur = outer ? 10 + pulse * 10 : 0;
+    ctx.shadowColor = '#8aa0ff';
+    ctx.beginPath();
+    ctx.moveTo(edgeX(k, sTop), HORIZON);
+    ctx.lineTo(edgeX(k, 1.06), perspY(1.06));
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // scrolling beat grid — bars flying toward the player
   if (AC && G.state === 'playing') {
-    const v = (hy + 40) / (stepDur() * 16);
+    const fd = stepDur() * 16;
     ctx.save();
     for (let s = step - 2; s < step + 40; s++) {
       if (s % 2 || s < 0) continue; // quarter notes only
-      const tb = gridStepTime(s);
-      const y = hy - v * (tb - now);
-      if (y < -10 || y > hy + 4) continue;
+      const p = 1 - (gridStepTime(s) - now) / fd;
+      if (p < 0 || p > 1) continue;
+      const gs = perspS(p), gy = perspY(gs);
       const isMeasure = s % 8 === 0;
-      ctx.strokeStyle = isMeasure ? 'rgba(150,165,255,0.15)' : 'rgba(150,165,255,0.05)';
-      ctx.lineWidth = isMeasure ? 1.5 : 1;
-      ctx.beginPath(); ctx.moveTo(8, y); ctx.lineTo(w - 8, y); ctx.stroke();
-    }
-    // beat echo — a line kicks up from the hit line on every beat
-    const age = now - G.lastBeatFlash;
-    if (age >= 0 && age < 0.45) {
-      const yE = hy - age * 230;
-      ctx.strokeStyle = `rgba(138,160,255,${0.28 * (1 - age / 0.45)})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(8, yE); ctx.lineTo(w - 8, yE); ctx.stroke();
+      ctx.strokeStyle = isMeasure
+        ? `rgba(150,165,255,${0.08 + 0.16 * gs})`
+        : `rgba(150,165,255,${0.02 + 0.06 * gs})`;
+      ctx.lineWidth = isMeasure ? 1.5 * gs + 0.5 : 1;
+      ctx.beginPath();
+      ctx.moveTo(edgeX(0, gs), gy); ctx.lineTo(edgeX(4, gs), gy);
+      ctx.stroke();
     }
     // equalizer glow behind the hit line
     const bars = 20, bw2 = w / bars;
@@ -1133,40 +1200,69 @@ function draw(ts) {
     ctx.restore();
   }
 
-  // hit line
+  // hit line + lane receptors
   ctx.save();
   ctx.shadowBlur = 12 + pulse * 18;
   ctx.shadowColor = '#8aa0ff';
   ctx.strokeStyle = `rgba(170,185,255,${0.8 + pulse * 0.2})`;
   ctx.lineWidth = 2.5 + pulse * 1.5;
-  ctx.beginPath(); ctx.moveTo(8, hy); ctx.lineTo(w - 8, hy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(4, hy); ctx.lineTo(w - 4, hy); ctx.stroke();
+  ctx.shadowBlur = 0;
+  for (let l = 0; l < 4; l++) {
+    const flash = AC ? Math.max(0, 1 - (now - (G.padFlash[l] || 0)) / 0.18) : 0;
+    const rw = (w / 4) * 0.8, rh = 13;
+    ctx.fillStyle = LANE_COLORS[l] + (flash > 0 ? '55' : '18');
+    ctx.strokeStyle = LANE_COLORS[l] + (flash > 0 ? 'ff' : '66');
+    ctx.lineWidth = 1.5 + flash * 2;
+    ctx.shadowBlur = flash * 18; ctx.shadowColor = LANE_COLORS[l];
+    roundRect(ctx, laneCX(l, 1) - rw / 2, hy - rh / 2, rw, rh, 6);
+    ctx.fill(); ctx.stroke();
+  }
   ctx.restore();
 
   // notes
   if (AC) {
-    const laneW = w / 4;
-    const r = Math.min(27, laneW * 0.33);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
     for (const n of G.notes) {
-      // question banner: falls, then docks below the hit line until replaced
+      // question banner: flies in on the highway, docks below the hit line
       if (n.type === 'question') {
-        const bh = Math.min(60, (h - hy) * 0.82);
-        let y, alpha = 1;
         if (!n.judged) {
-          y = hy - (hy + 40) / n.fallDur * (n.hitTime - now);
-          if (y < -70) continue;
-        } else {
-          const k = Math.min(1, (now - n.dockAt) / 0.25);
-          y = hy + ((h - hy) * 0.5) * (k * (2 - k)); // ease out to dock spot
-          if (n.undockAt) alpha = Math.max(0, 1 - (now - n.undockAt) / 0.35);
-          if (alpha <= 0) continue;
+          const p = 1 - (n.hitTime - now) / n.fallDur;
+          if (p < -0.02) continue;
+          const s = perspS(p), y = perspY(s);
+          const bw2 = (w - 14) * s;
+          const bh2 = Math.max(16, 48 * s);
+          ctx.save();
+          ctx.shadowBlur = 18 * s;
+          ctx.shadowColor = n.reveal ? '#34d399' : '#8aa0ff';
+          const g = ctx.createLinearGradient(0, y - bh2 / 2, 0, y + bh2 / 2);
+          g.addColorStop(0, n.reveal ? 'rgba(24,120,84,0.96)' : 'rgba(62,74,170,0.96)');
+          g.addColorStop(1, n.reveal ? 'rgba(10,60,42,0.96)' : 'rgba(28,34,96,0.96)');
+          ctx.fillStyle = g;
+          ctx.strokeStyle = n.reveal ? 'rgba(110,240,185,0.9)' : 'rgba(165,185,255,0.9)';
+          ctx.lineWidth = 1 + 2 * s;
+          roundRect(ctx, w / 2 - bw2 / 2, y - bh2 / 2, bw2, bh2, 10 * s + 3);
+          ctx.fill(); ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#ffffff';
+          ctx.font = `900 ${Math.max(10, Math.round(27 * s))}px 'Segoe UI', sans-serif`;
+          ctx.fillText(`${n.q} = ${n.reveal ? n.ans : '?'}`, w / 2, y + 1);
+          ctx.restore();
+          continue;
         }
-        const flip = n.docked && !n.undockAt && now < G.revealUntil; // hit → show the answer
+        // docked (screen space)
+        const bh = Math.min(60, (h - hy) * 0.82);
+        const k = Math.min(1, (now - n.dockAt) / 0.25);
+        const y = hy + ((h - hy) * 0.5) * (k * (2 - k));
+        let alpha = 1;
+        if (n.undockAt) alpha = Math.max(0, 1 - (now - n.undockAt) / (n.shatter ? 0.08 : 0.35));
+        if (alpha <= 0) continue;
+        const flip = n.docked && !n.undockAt && now < G.revealUntil;
         const showAns = n.reveal || flip;
         ctx.save();
         ctx.globalAlpha = alpha;
-        ctx.shadowBlur = n.judged ? 20 : 14;
+        ctx.shadowBlur = 20;
         ctx.shadowColor = n.reveal ? '#34d399' : flip ? '#7dffb0' : '#8aa0ff';
         const g = ctx.createLinearGradient(0, y - bh / 2, 0, y + bh / 2);
         g.addColorStop(0, n.reveal ? 'rgba(24,120,84,0.98)' : 'rgba(62,74,170,0.98)');
@@ -1185,63 +1281,79 @@ function draw(ts) {
         continue;
       }
 
-      // held long note: shrinking tail pinned at the line
+      // held long note: shrinking ribbon pinned at the line
       if (n.judged && n.holding && holdState) {
-        const v = (hy + 40) / n.fallDur;
-        const tailY = hy - v * (holdState.tailTime - now);
-        const x = laneX(holdState.lane);
+        const l = holdState.lane, col = LANE_COLORS[l];
+        const pT = 1 - (holdState.tailTime - now) / n.fallDur;
+        const s2 = perspS(Math.max(0, Math.min(1, pT))), y2 = perspY(s2);
+        const x1 = laneCX(l, 1), hw1 = (w / 4) * 0.28;
+        const x2 = laneCX(l, s2), hw2 = (w / 4) * s2 * 0.28;
         ctx.save();
-        ctx.shadowBlur = 22; ctx.shadowColor = LANE_COLORS[holdState.lane];
-        ctx.fillStyle = LANE_COLORS[holdState.lane] + '66';
-        ctx.strokeStyle = LANE_COLORS[holdState.lane];
-        ctx.lineWidth = 2;
-        roundRect(ctx, x - r * 0.5, tailY, r, Math.max(6, hy - tailY), r * 0.5);
-        ctx.fill(); ctx.stroke();
+        ctx.shadowBlur = 20; ctx.shadowColor = col;
+        ctx.fillStyle = col + '66'; ctx.strokeStyle = col; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x2 - hw2, y2); ctx.lineTo(x2 + hw2, y2);
+        ctx.lineTo(x1 + hw1, hy); ctx.lineTo(x1 - hw1, hy);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
         ctx.restore();
-        if (Math.random() < 0.5) burst(x, hy, LANE_COLORS[holdState.lane], 1);
+        if (Math.random() < 0.5) burst(x1, hy, col, 1);
         continue;
       }
       if (n.judged) continue;
 
-      const y = hy - (hy + 40) / n.fallDur * (n.hitTime - now);
-      if (y < -70) continue;
-
-      // answer note
-      const x = laneX(n.lane);
+      // answer tile, growing as it approaches
+      const p = 1 - (n.hitTime - now) / n.fallDur;
+      if (p < -0.02) continue;
+      const s = perspS(p), y = perspY(s);
+      const x = laneCX(n.lane, s);
       const near = Math.max(0, 1 - Math.abs(n.hitTime - now) / 0.4);
       const col = LANE_COLORS[n.lane];
+      const tw = (w / 4) * s * 0.84;
+      const th = Math.max(15, 38 * s);
       ctx.save();
-      if (n.long) { // tail
-        const tailY = y - (hy + 40) / n.fallDur * n.holdDur;
+      if (n.long) { // perspective tail ribbon
+        const pT = p - n.holdDur / n.fallDur;
+        const s2 = perspS(Math.max(0, pT)), y2 = perspY(s2);
+        const x2 = laneCX(n.lane, s2);
+        const hw1 = tw * 0.3, hw2 = (w / 4) * s2 * 0.84 * 0.3;
         ctx.shadowBlur = 6; ctx.shadowColor = col;
-        ctx.fillStyle = col + '3a';
-        ctx.strokeStyle = col + '88';
-        ctx.lineWidth = 1.5;
-        roundRect(ctx, x - r * 0.5, tailY, r, y - tailY, r * 0.5);
-        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = col + '3a'; ctx.strokeStyle = col + '88'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x2 - hw2, y2); ctx.lineTo(x2 + hw2, y2);
+        ctx.lineTo(x + hw1, y); ctx.lineTo(x - hw1, y);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
       }
-      ctx.shadowBlur = 8 + near * 20;
+      ctx.shadowBlur = (8 + near * 22) * s;
       ctx.shadowColor = col;
-      ctx.fillStyle = 'rgba(12,14,32,0.95)';
-      ctx.strokeStyle = col;
-      ctx.lineWidth = 2 + near;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.strokeStyle = `rgba(255,255,255,${0.5 + near * 0.5})`;
+      ctx.lineWidth = 1 + near * 1.5;
+      roundRect(ctx, x - tw / 2, y - th / 2, tw, th, 6 * s + 3);
+      ctx.fill(); ctx.stroke();
       ctx.shadowBlur = 0;
-      ctx.fillStyle = '#eef1ff';
-      ctx.font = `800 ${19 + near * 3}px 'Segoe UI', sans-serif`;
-      ctx.fillText(String(n.value), x, y);
+      ctx.fillStyle = '#0b0e1e';
+      ctx.font = `900 ${Math.max(10, Math.round((23 + near * 3) * s))}px 'Segoe UI', sans-serif`;
+      ctx.fillText(String(n.value), x, y + 1);
       ctx.restore();
     }
   }
 
-  // particles
+  // particles (sparks + banner shards)
   for (const p of G.effects) {
-    p.life -= dt * 1.8;
+    p.life -= dt * (p.kind === 'shard' ? 1.2 : 1.8);
     p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 680 * dt;
     if (p.life <= 0) continue;
     ctx.globalAlpha = Math.max(0, p.life);
     ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+    if (p.kind === 'shard') {
+      p.rot += p.vr * dt;
+      ctx.save();
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    } else {
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+    }
   }
   ctx.globalAlpha = 1;
   G.effects = G.effects.filter(p => p.life > 0);
@@ -1256,7 +1368,7 @@ cv.addEventListener('pointerdown', e => {
   const lane = Math.min(3, Math.max(0, Math.floor((e.clientX - rect.left) / (rect.width / 4))));
   pressPad(lane, 'pointer');
 });
-const KEYMAP = { KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3 };
+const KEYMAP = { KeyA: 0, KeyW: 1, KeyS: 2, KeyD: 3 };
 window.addEventListener('keydown', e => {
   if (e.repeat) return;
   if (e.code in KEYMAP) pressPad(KEYMAP[e.code], 'key');
@@ -1357,6 +1469,7 @@ async function startGame() {
     curDan: 2, curB: 1, stage: 'memorize',
     testOrder: null, testIdx: 0, mixdanCount: 0, mixedCount: 0,
     stageDisplay: '', curQ: null, revealUntil: 0,
+    padFlash: [0, 0, 0, 0], lastCorrectPress: 0,
   });
   startOverlay.classList.add('hidden');
   overOverlay.classList.add('hidden');
