@@ -413,16 +413,11 @@ function buzzMiss(t) {
   o.connect(g); g.connect(master);
   o.start(t); o.stop(t + 0.38);
 }
-function keySound(lane, t) { // player keysound
-  if (playSfx('key' + (lane % 4 + 1), t, 0.75, 0.18)) return;
-  if (songMode()) { // key-agnostic percussive ticks over real tracks
-    const fr = [1300, 1750, 2300, 2950][lane % 4];
-    noise(t, 0.07, 'bandpass', fr, 0.5, master);
-    noise(t, 0.02, 'highpass', 6500, 0.22, master);
-    return;
-  }
-  const chord = PROG[G.curChordIdx || 0];
-  const f0 = midi(chord.arp[lane % 4] + 12);
+const PENTA = [57, 60, 64, 67]; // A C E G — consonant stack over any track
+function keySound(lane, t) { // melodic keysound: each lane is a chord tone
+  const f0 = songMode()
+    ? midi(PENTA[lane % 4] + 12)
+    : midi(PROG[G.curChordIdx || 0].arp[lane % 4] + 12);
   for (const [type, det, amp] of [['sawtooth', 0, 0.3], ['sawtooth', 9, 0.18]]) {
     const o = AC.createOscillator(); o.type = type;
     o.frequency.value = f0; o.detune.value = det;
@@ -870,7 +865,7 @@ function beginHold(note, lane, source) {
   holdState = {
     note, lane, source,
     tailTime: note.hitTime + note.holdDur,
-    voice: songMode() ? holdSizzle() : holdVoice(midi(chord.arp[lane % 4] + 12)),
+    voice: holdVoice(midi((songMode() ? PENTA[lane % 4] : chord.arp[lane % 4]) + 12)),
   };
 }
 function finishHold(success) {
@@ -936,7 +931,7 @@ function judgeNote(note, verdict, pel, wrongPress, dt) {
   const ta = (note.hitTime > t && note.hitTime - t < 0.2) ? note.hitTime : t;
 
   if (verdict === 'PERFECT') {
-    if (!playSfx('hit_perfect', ta, 0.95, 0.5)) { kick(ta, master); snare(ta, master, true); crash(ta, 0.25); }
+    if (!playSfx('hit_perfect', ta, 0.55, 0.5)) { kick(ta, master); snare(ta, master, true); crash(ta, 0.25); }
     G.revealUntil = t + 0.8; // docked banner flips to the full equation
     G.combo++; G.correct++;
     G.score += 300 + G.combo * 10;
@@ -944,7 +939,7 @@ function judgeNote(note, verdict, pel, wrongPress, dt) {
     burst(lx, hy, LANE_COLORS[note.lane], 24);
     if (pel) { pel.classList.add('correct'); setTimeout(() => pel.classList.remove('correct'), 220); }
   } else if (verdict === 'GOOD') {
-    if (!playSfx('hit_good', ta, 0.9, 0.4)) { kick(ta, master); snare(ta, master, true); }
+    if (!playSfx('hit_good', ta, 0.5, 0.4)) { kick(ta, master); snare(ta, master, true); }
     G.revealUntil = t + 0.8;
     G.combo++; G.correct++;
     G.score += 100 + G.combo * 5;
