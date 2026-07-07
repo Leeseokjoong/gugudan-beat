@@ -136,6 +136,12 @@
   }
   .danBtn.on { border-color:#a78bfa; color:#c8b6ff; box-shadow:0 0 10px rgba(167,139,250,.35); }
   #songGrid { display:grid; grid-template-columns:repeat(2, 150px); gap:6px; }
+  #settings { width:300px; }
+  .setRow { display:flex; align-items:center; gap:8px; margin:5px 0; font-size:12px; color:#8a93bd; }
+  .setRow span { width:46px; text-align:right; }
+  .setRow b { width:46px; text-align:left; color:#67e8f9; font-variant-numeric:tabular-nums; font-size:11px; }
+  .setRow input { flex:1; accent-color:#22d3ee; }
+  .setHint { font-size:10px; color:#3d4468; margin-top:4px; }
   .songBtn {
     padding:9px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.12);
     background:#0c0e1e; color:#5a6494; font-size:12px; font-weight:700; cursor:pointer;
@@ -296,6 +302,15 @@
     <div class="sectionLabel">— 음악 —</div>
     <div id="songGrid"></div>
 
+    <div class="sectionLabel">— 사운드 · 판정 —</div>
+    <div id="settings">
+      <div class="setRow"><span>음악</span><input type="range" id="volMusic" min="0" max="100" value="50"><b>50</b></div>
+      <div class="setRow"><span>연주음</span><input type="range" id="volKeys" min="0" max="100" value="100"><b>100</b></div>
+      <div class="setRow"><span>효과음</span><input type="range" id="volSfx" min="0" max="100" value="100"><b>100</b></div>
+      <div class="setRow"><span>판정</span><input type="range" id="calib" min="-100" max="100" step="5" value="0"><b>0ms</b></div>
+      <div class="setHint">'빠름' 판정이 잦으면 − 쪽으로, '늦음'이 잦으면 + 쪽으로</div>
+    </div>
+
     <div id="freeOpts" class="hidden">
       <div class="sectionLabel">— 연습할 단 —</div>
       <div id="danGrid"></div>
@@ -370,8 +385,22 @@ const G = {
   curChordIdx: 0, lastBeatFlash: 0,
 };
 
+// ---------- player settings (persisted) ----------
+const SETTINGS = {
+  volMusic: +(localStorage.getItem('gb_volMusic') ?? 50),
+  volKeys:  +(localStorage.getItem('gb_volKeys') ?? 100),
+  volSfx:   +(localStorage.getItem('gb_volSfx') ?? 100),
+  calib:    +(localStorage.getItem('gb_calib') ?? 0), // ms; + shifts judgment later
+};
+function applySettings() {
+  if (!AC) return;
+  musicGain.gain.value = SETTINGS.volMusic / 100;
+  keyGain.gain.value = SETTINGS.volKeys / 100;
+  sfxGain.gain.value = SETTINGS.volSfx / 100;
+}
+
 // ---------- audio ----------
-let AC = null, master, musicGain;
+let AC = null, master, musicGain, keyGain, sfxGain;
 let schedTimer = null, logicTimer = null;
 let nextStepTime = 0, step = 0;   // step = 8th note
 let noiseBuf = null;
@@ -390,11 +419,14 @@ function initAudio() {
   AC = new (window.AudioContext || window.webkitAudioContext)();
   master = AC.createGain(); master.gain.value = 0.9; master.connect(AC.destination);
   musicGain = AC.createGain(); musicGain.gain.value = 0.5; musicGain.connect(master);
+  keyGain = AC.createGain(); keyGain.gain.value = 1; keyGain.connect(master);   // 연주음
+  sfxGain = AC.createGain(); sfxGain.gain.value = 1; sfxGain.connect(master);   // 효과음
   delayBus = AC.createDelay(1); delayBus.delayTime.value = 0.28;
   const fb = AC.createGain(); fb.gain.value = 0.34;
   delayWet = AC.createGain(); delayWet.gain.value = 0.2;
   delayBus.connect(fb); fb.connect(delayBus);
-  delayBus.connect(delayWet); delayWet.connect(master);
+  delayBus.connect(delayWet); delayWet.connect(keyGain);
+  applySettings();
   const len = AC.sampleRate;
   noiseBuf = AC.createBuffer(1, len, AC.sampleRate);
   const d = noiseBuf.getChannelData(0);
@@ -430,7 +462,7 @@ function playSfx(name, when, gain, cut) {
   const src = AC.createBufferSource();
   src.buffer = s.buffer;
   const g = AC.createGain(); g.gain.value = gain || 1;
-  src.connect(g); g.connect(master);
+  src.connect(g); g.connect(sfxGain);
   src.start(t, s.offset);
   if (cut) { // ElevenLabs one-shots are 4s long — chop the tail
     g.gain.setValueAtTime(gain || 1, t + cut);
@@ -498,14 +530,14 @@ function pluck(t, freq, peak) {
   o.connect(f); f.connect(g); g.connect(musicGain);
   o.start(t); o.stop(t + 0.25);
 }
-function crash(t, peak) { noise(t, 0.8, 'highpass', 5200, peak || 0.4, master); }
+function crash(t, peak) { noise(t, 0.8, 'highpass', 5200, peak || 0.4, sfxGain); }
 function whoosh(t) { // question banner crossing the line
   const s = AC.createBufferSource(); s.buffer = noiseBuf;
   const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.2;
   f.frequency.setValueAtTime(400, t);
   f.frequency.exponentialRampToValueAtTime(3200, t + 0.25);
   const g = AC.createGain(); env(g, t, 0.25, 0.3);
-  s.connect(f); f.connect(g); g.connect(master);
+  s.connect(f); f.connect(g); g.connect(sfxGain);
   s.start(t); s.stop(t + 0.35);
 }
 function buzzMiss(t) {
@@ -513,7 +545,7 @@ function buzzMiss(t) {
   o.frequency.setValueAtTime(150, t);
   o.frequency.exponentialRampToValueAtTime(50, t + 0.28);
   const g = AC.createGain(); env(g, t, 0.45, 0.32);
-  o.connect(g); g.connect(master);
+  o.connect(g); g.connect(sfxGain);
   o.start(t); o.stop(t + 0.38);
 }
 const PENTA = [57, 60, 64, 67]; // A C E G — consonant stack over any track
@@ -528,10 +560,10 @@ function keySound(lane, t) { // melodic keysound: each lane is a chord tone
     f.frequency.setValueAtTime(2600, t);
     f.frequency.exponentialRampToValueAtTime(600, t + 0.16);
     const g = AC.createGain(); env(g, t, amp, 0.2);
-    o.connect(f); f.connect(g); g.connect(master);
+    o.connect(f); f.connect(g); g.connect(keyGain);
     o.start(t); o.stop(t + 0.24);
   }
-  noise(t, 0.03, 'highpass', 6000, 0.12, master);
+  noise(t, 0.03, 'highpass', 6000, 0.12, keyGain);
 }
 function holdSizzle() { // key-agnostic hold sound for real tracks
   const s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
@@ -540,7 +572,7 @@ function holdSizzle() { // key-agnostic hold sound for real tracks
   const lg = AC.createGain(); lg.gain.value = 900;
   lfo.connect(lg); lg.connect(f.frequency);
   const g = AC.createGain(); g.gain.value = 0.1;
-  s.connect(f); f.connect(g); g.connect(master);
+  s.connect(f); f.connect(g); g.connect(keyGain);
   s.start(); lfo.start();
   return { stop() {
     const tt = AC.currentTime;
@@ -560,7 +592,7 @@ function holdVoice(freq) {
   const lfo = AC.createOscillator(); lfo.frequency.value = 5.5;
   const lg = AC.createGain(); lg.gain.value = 6;
   lfo.connect(lg); lg.connect(o.frequency);
-  o.connect(f); o2.connect(f); f.connect(g); g.connect(master);
+  o.connect(f); o2.connect(f); f.connect(g); g.connect(keyGain);
   o.start(); o2.start(); lfo.start();
   return { stop() {
     const tt = AC.currentTime;
@@ -572,7 +604,7 @@ function holdVoice(freq) {
 }
 function flourish(t) {
   if (songMode()) { // snare roll + crash — works over any track
-    snare(t, master, true); snare(t + 0.085, master); snare(t + 0.17, master, true);
+    snare(t, sfxGain, true); snare(t + 0.085, sfxGain); snare(t + 0.17, sfxGain, true);
     crash(t + 0.17, 0.35);
     return;
   }
@@ -736,7 +768,7 @@ function grandLead(t, m, vel) { // supersaw stack + sub, into the echo bus
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(vel, t + 0.015);
   g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
-  lp.connect(g); g.connect(master); g.connect(delayBus);
+  lp.connect(g); g.connect(keyGain); g.connect(delayBus);
   for (const det of [-14, -7, 0, 7, 14]) {
     const o = AC.createOscillator(); o.type = 'sawtooth';
     o.frequency.value = f0; o.detune.value = det;
@@ -759,7 +791,7 @@ function grandChord(t, chord) { // wide stab under the lead — the "웅장" par
       g.gain.setValueAtTime(0.0001, t);
       g.gain.linearRampToValueAtTime(0.05, t + 0.04);
       g.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
-      o.connect(f); f.connect(g); g.connect(master); g.connect(delayBus);
+      o.connect(f); f.connect(g); g.connect(keyGain); g.connect(delayBus);
       o.start(t); o.stop(t + 1.2);
     }
   }
@@ -1086,11 +1118,12 @@ function pressPad(i, source) {
   setTimeout(() => pel.classList.remove('hitting'), 90);
   if (holdState) return;
 
-  // nearest unjudged answer note in this lane
+  // nearest unjudged answer note in this lane (calibration shifts the window)
+  const off = SETTINGS.calib / 1000;
   let best = null, bestAdt = 1e9;
   for (const n of G.notes) {
     if (n.type !== 'answer' || n.judged || n.lane !== i) continue;
-    const adt = Math.abs(n.hitTime - now);
+    const adt = Math.abs(n.hitTime + off - now);
     if (adt < bestAdt) { best = n; bestAdt = adt; }
   }
   if (!best || bestAdt > 0.45) return; // air press — free play
@@ -1101,7 +1134,7 @@ function pressPad(i, source) {
   G.total++;
   if (best.value === best.ans) {
     G.lastCorrectPress = now;
-    judgeNote(best, bestAdt <= 0.14 ? 'PERFECT' : 'GOOD', pel, false, best.hitTime - now);
+    judgeNote(best, bestAdt <= 0.14 ? 'PERFECT' : 'GOOD', pel, false, best.hitTime + off - now);
     if (best.long) beginHold(best, i, source || 'pointer');
   } else {
     pel.classList.add('wrong');
@@ -1119,7 +1152,7 @@ function judgeNote(note, verdict, pel, wrongPress, dt) {
   const ta = (note.hitTime > t && note.hitTime - t < 0.2) ? note.hitTime : t;
 
   if (verdict === 'PERFECT') {
-    if (!playSfx('hit_perfect', ta, 0.55, 0.5)) { kick(ta, master); snare(ta, master, true); crash(ta, 0.25); }
+    if (!playSfx('hit_perfect', ta, 0.55, 0.5)) { kick(ta, sfxGain); snare(ta, sfxGain, true); crash(ta, 0.25); }
     G.revealUntil = t + 0.8; // docked banner flips to the full equation
     G.combo++; G.correct++;
     G.score += 300 + G.combo * 10;
@@ -1127,7 +1160,7 @@ function judgeNote(note, verdict, pel, wrongPress, dt) {
     burst(lx, hy, LANE_COLORS[note.lane], 24);
     if (pel) { pel.classList.add('correct'); setTimeout(() => pel.classList.remove('correct'), 220); }
   } else if (verdict === 'GOOD') {
-    if (!playSfx('hit_good', ta, 0.5, 0.4)) { kick(ta, master); snare(ta, master, true); }
+    if (!playSfx('hit_good', ta, 0.5, 0.4)) { kick(ta, sfxGain); snare(ta, sfxGain, true); }
     G.revealUntil = t + 0.8;
     G.combo++; G.correct++;
     G.score += 100 + G.combo * 5;
@@ -1652,6 +1685,20 @@ document.querySelectorAll('.diffBtn').forEach(b => {
     G.baseBpm = +b.dataset.bpm;
   });
 });
+
+// settings sliders (volume mix + judgment calibration)
+for (const [id, suffix] of [['volMusic', ''], ['volKeys', ''], ['volSfx', ''], ['calib', 'ms']]) {
+  const input = el(id);
+  const label = input.nextElementSibling;
+  input.value = SETTINGS[id];
+  label.textContent = SETTINGS[id] + suffix;
+  input.addEventListener('input', () => {
+    SETTINGS[id] = +input.value;
+    label.textContent = input.value + suffix;
+    localStorage.setItem('gb_' + id, input.value);
+    applySettings();
+  });
+}
 
 // song selector
 const songGrid = el('songGrid');
