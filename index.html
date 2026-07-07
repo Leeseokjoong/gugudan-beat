@@ -168,20 +168,50 @@
 
   /* result */
   #grade {
-    font-size:96px; font-weight:900; line-height:1;
+    font-size:120px; font-weight:900; line-height:1;
     background:linear-gradient(180deg,#fff,#8aa0ff);
     -webkit-background-clip:text; background-clip:text; color:transparent;
     filter:drop-shadow(0 0 30px rgba(140,160,255,.6));
   }
+  #grade.slam { animation:gradeSlam .5s cubic-bezier(.2,1.4,.35,1) both; }
+  @keyframes gradeSlam {
+    0% { transform:scale(3.4) rotate(-14deg); opacity:0; filter:blur(14px) drop-shadow(0 0 60px #fff); }
+    55% { opacity:1; filter:blur(0) drop-shadow(0 0 70px rgba(180,200,255,.95)); }
+    70% { transform:scale(.86) rotate(2deg); }
+    100% { transform:scale(1) rotate(0); filter:blur(0) drop-shadow(0 0 30px rgba(140,160,255,.6)); }
+  }
+  #grade.hi { animation:gradeSlam .5s cubic-bezier(.2,1.4,.35,1) both, gradePulse 1.3s ease-in-out .5s infinite; }
+  @keyframes gradePulse {
+    0%,100% { filter:drop-shadow(0 0 26px rgba(140,160,255,.6)); }
+    50% { filter:drop-shadow(0 0 52px rgba(190,210,255,1)); }
+  }
+  #gradeFlash {
+    position:absolute; inset:0; z-index:3; pointer-events:none; opacity:0;
+    background:radial-gradient(circle at 50% 42%, rgba(255,255,255,.9), transparent 60%);
+  }
+  #gradeFlash.go { animation:flashBang .45s ease-out; }
+  @keyframes flashBang { 0% { opacity:.9; } 100% { opacity:0; } }
   #overTitle { font-size:15px; letter-spacing:6px; color:#5a6494; margin-bottom:8px; }
   .statGrid {
-    display:grid; grid-template-columns:auto auto; gap:4px 26px;
+    display:grid; grid-template-columns:auto auto; gap:6px 26px;
     margin:22px 0 4px; font-size:14px; color:#8a93bd; text-align:left;
   }
   .statGrid b { color:#e8ecff; font-variant-numeric:tabular-nums; }
+  #finalScore { font-size:19px; }
+  /* staggered pop-in for each result line */
+  .pop-row { opacity:0; }
+  .pop-row.show { animation:popRow .42s cubic-bezier(.2,1.5,.4,1) both; }
+  @keyframes popRow {
+    0% { opacity:0; transform:translateY(14px) scale(.7); }
+    60% { opacity:1; transform:translateY(0) scale(1.12); }
+    100% { opacity:1; transform:scale(1); }
+  }
+  .bump { animation:bump .16s ease-out; }
+  @keyframes bump { 0%{transform:scale(1)} 40%{transform:scale(1.35)} 100%{transform:scale(1)} }
   .jcounts { display:flex; gap:18px; margin-top:12px; font-size:12px; letter-spacing:1px; }
   .jcounts span b { display:block; font-size:18px; text-align:center; }
   .jP b{color:#67e8f9} .jG b{color:#fbbf24} .jM b{color:#f43f5e}
+  #confetti { position:absolute; inset:0; z-index:4; pointer-events:none; }
   #menuBtn { margin-top:16px; font-size:12px; color:#5a6494; cursor:pointer; letter-spacing:2px; }
 
   /* ===== NEON / cyberpunk theme for overlays ===== */
@@ -332,21 +362,23 @@
 
   <!-- result -->
   <div id="overOverlay" class="overlay hidden">
-    <div id="overTitle">RESULT</div>
+    <canvas id="confetti"></canvas>
+    <div id="gradeFlash"></div>
+    <div id="overTitle" class="pop-row">RESULT</div>
     <div id="grade">S</div>
     <div class="statGrid">
-      <span>SCORE</span><b id="finalScore">0</b>
-      <span>MAX COMBO</span><b id="finalCombo">0</b>
-      <span>정확도</span><b id="finalAcc">0%</b>
-      <span>도달</span><b id="finalStage">-</b>
+      <span class="pop-row" data-row>SCORE</span><b id="finalScore" class="pop-row" data-row>0</b>
+      <span class="pop-row" data-row>MAX COMBO</span><b id="finalCombo" class="pop-row" data-row>0</b>
+      <span class="pop-row" data-row>정확도</span><b id="finalAcc" class="pop-row" data-row>0%</b>
+      <span class="pop-row" data-row>도달</span><b id="finalStage" class="pop-row" data-row>-</b>
     </div>
     <div class="jcounts">
-      <span class="jP"><b id="cntP">0</b>PERFECT</span>
-      <span class="jG"><b id="cntG">0</b>GOOD</span>
-      <span class="jM"><b id="cntM">0</b>MISS</span>
+      <span class="jP pop-row" data-row><b id="cntP">0</b>PERFECT</span>
+      <span class="jG pop-row" data-row><b id="cntG">0</b>GOOD</span>
+      <span class="jM pop-row" data-row><b id="cntM">0</b>MISS</span>
     </div>
-    <button id="retryBtn" class="bigBtn">RETRY</button>
-    <div id="menuBtn">← MENU</div>
+    <button id="retryBtn" class="bigBtn pop-row" data-row>RETRY</button>
+    <div id="menuBtn" class="pop-row" data-row>← MENU</div>
   </div>
 </div>
 
@@ -549,21 +581,25 @@ function buzzMiss(t) {
   o.start(t); o.stop(t + 0.38);
 }
 const PENTA = [57, 60, 64, 67]; // A C E G — consonant stack over any track
-function keySound(lane, t) { // melodic keysound: each lane is a chord tone
+function keySound(lane, t) { // supersaw keysound — same family as the grand lead
   const f0 = songMode()
     ? midi(PENTA[lane % 4] + 12)
     : midi(PROG[G.curChordIdx || 0].arp[lane % 4] + 12);
-  for (const [type, det, amp] of [['sawtooth', 0, 0.3], ['sawtooth', 9, 0.18]]) {
-    const o = AC.createOscillator(); o.type = type;
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(3400, t);
+  lp.frequency.exponentialRampToValueAtTime(950, t + 0.22);
+  const g = AC.createGain(); env(g, t, 0.32, 0.26);
+  lp.connect(g); g.connect(keyGain);
+  const send = AC.createGain(); send.gain.value = 0.28; // a hint of echo space
+  g.connect(send); send.connect(delayBus);
+  for (const det of [-11, 0, 11]) {
+    const o = AC.createOscillator(); o.type = 'sawtooth';
     o.frequency.value = f0; o.detune.value = det;
-    const f = AC.createBiquadFilter(); f.type = 'lowpass';
-    f.frequency.setValueAtTime(2600, t);
-    f.frequency.exponentialRampToValueAtTime(600, t + 0.16);
-    const g = AC.createGain(); env(g, t, amp, 0.2);
-    o.connect(f); f.connect(g); g.connect(keyGain);
-    o.start(t); o.stop(t + 0.24);
+    const og = AC.createGain(); og.gain.value = 0.32;
+    o.connect(og); og.connect(lp);
+    o.start(t); o.stop(t + 0.32);
   }
-  noise(t, 0.03, 'highpass', 6000, 0.12, keyGain);
+  noise(t, 0.02, 'highpass', 7200, 0.07, keyGain);
 }
 function holdSizzle() { // key-agnostic hold sound for real tracks
   const s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
@@ -1765,21 +1801,118 @@ async function startGame() {
 function gradeOf(acc) {
   return acc >= 95 ? 'S' : acc >= 90 ? 'A' : acc >= 80 ? 'B' : acc >= 65 ? 'C' : 'D';
 }
+// count a number up with easing; taps a rising tick as it climbs
+function countUp(elm, to, ms, fmt, onDone) {
+  const t0 = performance.now();
+  fmt = fmt || (v => Math.round(v).toLocaleString());
+  let lastTick = 0;
+  (function frame(now) {
+    let k = Math.min(1, (now - t0) / ms);
+    const e = 1 - Math.pow(1 - k, 3);          // ease-out cubic
+    elm.textContent = fmt(to * e);
+    if (AC && now - lastTick > 45 && k < 1) {   // rolling tick
+      lastTick = now;
+      const o = AC.createOscillator(); o.type = 'square';
+      o.frequency.value = 900 + 900 * e;
+      const g = AC.createGain(); g.gain.setValueAtTime(0.06, AC.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + 0.04);
+      o.connect(g); g.connect(sfxGain || master);
+      o.start(); o.stop(AC.currentTime + 0.05);
+    }
+    if (k < 1) requestAnimationFrame(frame);
+    else { elm.textContent = fmt(to); elm.classList.add('bump');
+           setTimeout(() => elm.classList.remove('bump'), 180); onDone && onDone(); }
+  })(t0);
+}
+
+function fanfare(t, big) { // rising major arpeggio + boom
+  const notes = big ? [60, 64, 67, 72, 76, 79] : [60, 64, 67, 72];
+  notes.forEach((m, i) => pluck(t + i * 0.08, midi(m + 12), 0.28));
+  kick(t, sfxGain); kick(t + notes.length * 0.08, sfxGain);
+  crash(t + notes.length * 0.08, 0.5);
+}
+
+const confettiCv = el('confetti');
+const confettiCtx = confettiCv.getContext('2d');
+let confettiParts = [], confettiRAF = 0;
+function burstConfetti() {
+  const r = overOverlay.getBoundingClientRect();
+  confettiCv.width = r.width; confettiCv.height = r.height;
+  const cols = ['#22d3ee', '#a78bfa', '#f472b6', '#fbbf24', '#7dffb0', '#fff'];
+  confettiParts = [];
+  for (let i = 0; i < 130; i++) {
+    confettiParts.push({
+      x: r.width / 2 + (Math.random() - 0.5) * 80,
+      y: r.height * 0.32,
+      vx: (Math.random() - 0.5) * 620,
+      vy: -Math.random() * 640 - 120,
+      w: 5 + Math.random() * 8, h: 8 + Math.random() * 12,
+      rot: Math.random() * 6.3, vr: (Math.random() - 0.5) * 16,
+      life: 1.4 + Math.random() * 0.8, col: cols[i % cols.length],
+    });
+  }
+  cancelAnimationFrame(confettiRAF);
+  let last = performance.now();
+  (function anim(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    confettiCtx.clearRect(0, 0, confettiCv.width, confettiCv.height);
+    let alive = 0;
+    for (const p of confettiParts) {
+      p.life -= dt; if (p.life <= 0) continue; alive++;
+      p.vy += 900 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+      confettiCtx.save();
+      confettiCtx.globalAlpha = Math.min(1, p.life);
+      confettiCtx.translate(p.x, p.y); confettiCtx.rotate(p.rot);
+      confettiCtx.fillStyle = p.col;
+      confettiCtx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      confettiCtx.restore();
+    }
+    if (alive) confettiRAF = requestAnimationFrame(anim);
+    else confettiCtx.clearRect(0, 0, confettiCv.width, confettiCv.height);
+  })(last);
+}
+
 function gameOver() {
   G.state = 'over';
   stopMusic();
   if (holdState) { holdState.voice.stop(); holdState.note.holding = false; holdState = null; }
-  if (!playSfx('gameover', 0, 1, 3)) { buzzMiss(AC.currentTime); crash(AC.currentTime + 0.1, 0.4); }
+  buzzMiss(AC.currentTime); crash(AC.currentTime + 0.1, 0.4);
   const acc = G.total ? Math.round(G.correct / G.total * 100) : 0;
-  el('grade').textContent = gradeOf(acc);
-  el('finalScore').textContent = G.score.toLocaleString();
-  el('finalCombo').textContent = G.maxCombo;
-  el('finalAcc').textContent = acc + '%';
+  const grade = gradeOf(acc);
+  const highGrade = grade === 'S' || grade === 'A';
+
+  // reset animated bits
+  const gradeEl = el('grade'), flashEl = el('gradeFlash');
+  const rows = [...document.querySelectorAll('#overOverlay [data-row]')];
+  el('overTitle').classList.remove('show');
+  rows.forEach(r => r.classList.remove('show'));
+  gradeEl.className = ''; gradeEl.textContent = grade;
   el('finalStage').textContent = G.mode === 'free' ? '자유 연습' : (G.stageDisplay || '-');
-  el('cntP').textContent = G.jc.PERFECT;
-  el('cntG').textContent = G.jc.GOOD;
-  el('cntM').textContent = G.jc.MISS;
-  setTimeout(() => overOverlay.classList.remove('hidden'), 600);
+
+  setTimeout(() => {
+    overOverlay.classList.remove('hidden');
+    el('overTitle').classList.add('show');
+
+    // 1) grade SLAMS in with a flash + fanfare
+    setTimeout(() => {
+      gradeEl.classList.add('slam');
+      if (highGrade) setTimeout(() => gradeEl.classList.add('hi'), 500);
+      flashEl.classList.remove('go'); void flashEl.offsetWidth; flashEl.classList.add('go');
+      if (AC) fanfare(AC.currentTime, highGrade);
+      burstConfetti();
+    }, 120);
+
+    // 2) rows pop in one by one — 팍! 팍! 팍!
+    rows.forEach((r, i) => setTimeout(() => r.classList.add('show'), 520 + i * 140));
+
+    // 3) numbers roll up on their own row
+    setTimeout(() => countUp(el('finalScore'), G.score, 900), 560);
+    setTimeout(() => countUp(el('finalCombo'), G.maxCombo, 650), 700);
+    setTimeout(() => countUp(el('finalAcc'), acc, 650, v => Math.round(v) + '%'), 840);
+    setTimeout(() => countUp(el('cntP'), G.jc.PERFECT, 500, v => Math.round(v)), 1100);
+    setTimeout(() => countUp(el('cntG'), G.jc.GOOD, 500, v => Math.round(v)), 1240);
+    setTimeout(() => countUp(el('cntM'), G.jc.MISS, 500, v => Math.round(v)), 1380);
+  }, 500);
 }
 el('startBtn').addEventListener('click', startGame);
 el('retryBtn').addEventListener('click', startGame);
