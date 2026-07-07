@@ -193,23 +193,36 @@
   @keyframes flashBang { 0% { opacity:.9; } 100% { opacity:0; } }
   #overTitle { font-size:15px; letter-spacing:6px; color:#5a6494; margin-bottom:8px; }
   .statGrid {
-    display:grid; grid-template-columns:auto auto; gap:6px 26px;
-    margin:22px 0 4px; font-size:14px; color:#8a93bd; text-align:left;
+    display:grid; grid-template-columns:auto auto; gap:9px 26px;
+    margin:22px 0 4px; font-size:15px; color:#8a93bd; text-align:left; align-items:center;
   }
-  .statGrid b { color:#e8ecff; font-variant-numeric:tabular-nums; }
-  #finalScore { font-size:19px; }
-  /* staggered pop-in for each result line */
+  .statGrid b { color:#e8ecff; font-variant-numeric:tabular-nums; font-size:22px; }
+  #finalScore { font-size:34px; letter-spacing:1px; }
+  /* each result line STAMPS onto the screen — big slam, overshoot */
   .pop-row { opacity:0; }
-  .pop-row.show { animation:popRow .42s cubic-bezier(.2,1.5,.4,1) both; }
-  @keyframes popRow {
-    0% { opacity:0; transform:translateY(14px) scale(.7); }
-    60% { opacity:1; transform:translateY(0) scale(1.12); }
+  .pop-row.show { animation:stampIn .34s cubic-bezier(.18,1.35,.35,1) both; transform-origin:center; }
+  @keyframes stampIn {
+    0% { opacity:0; transform:scale(2.5); filter:blur(7px); }
+    55% { opacity:1; transform:scale(.82); filter:blur(0); }
+    76% { transform:scale(1.1); }
     100% { opacity:1; transform:scale(1); }
   }
-  .bump { animation:bump .16s ease-out; }
-  @keyframes bump { 0%{transform:scale(1)} 40%{transform:scale(1.35)} 100%{transform:scale(1)} }
-  .jcounts { display:flex; gap:18px; margin-top:12px; font-size:12px; letter-spacing:1px; }
-  .jcounts span b { display:block; font-size:18px; text-align:center; }
+  .bump { animation:bump .22s ease-out; }
+  @keyframes bump {
+    0%{transform:scale(1)}
+    40%{transform:scale(1.5); text-shadow:0 0 22px currentColor}
+    100%{transform:scale(1); text-shadow:none}
+  }
+  /* screen punch */
+  .shake { animation:shakeIt .22s ease-out; }
+  @keyframes shakeIt {
+    0%,100%{transform:translate(0,0)}
+    22%{transform:translate(calc(var(--sk,6px)*-1), calc(var(--sk,6px)*.4))}
+    45%{transform:translate(var(--sk,6px), calc(var(--sk,6px)*-.45))}
+    70%{transform:translate(calc(var(--sk,6px)*-.55), var(--sk,6px))}
+  }
+  .jcounts { display:flex; gap:20px; margin-top:14px; font-size:12px; letter-spacing:1px; }
+  .jcounts span b { display:block; font-size:26px; text-align:center; }
   .jP b{color:#67e8f9} .jG b{color:#fbbf24} .jM b{color:#f43f5e}
   #confetti { position:absolute; inset:0; z-index:4; pointer-events:none; }
   #menuBtn { margin-top:16px; font-size:12px; color:#5a6494; cursor:pointer; letter-spacing:2px; }
@@ -1872,6 +1885,29 @@ function burstConfetti() {
   })(last);
 }
 
+// a thud that "stamps" a result row onto the screen
+function stampImpact(p) {
+  if (!AC) return;
+  const t = AC.currentTime;
+  const o = AC.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(190, t);
+  o.frequency.exponentialRampToValueAtTime(52, t + 0.13);
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.55 * p, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  o.connect(g); g.connect(sfxGain || master);
+  o.start(t); o.stop(t + 0.22);
+  noise(t, 0.03, 'highpass', 2800, 0.3 * p, sfxGain || master);
+}
+// screen punch — jolt the whole result panel
+function shakeScreen(px) {
+  overOverlay.style.setProperty('--sk', px.toFixed(1) + 'px');
+  overOverlay.classList.remove('shake'); void overOverlay.offsetWidth;
+  overOverlay.classList.add('shake');
+}
+const vInt = v => Math.round(v);
+const vPct = v => Math.round(v) + '%';
+
 function gameOver() {
   G.state = 'over';
   stopMusic();
@@ -1889,29 +1925,40 @@ function gameOver() {
   gradeEl.className = ''; gradeEl.textContent = grade;
   el('finalStage').textContent = G.mode === 'free' ? '자유 연습' : (G.stageDisplay || '-');
 
+  // one stamp per line: [elements shown together, impact power, shake px, countUp args]
+  const lbl = document.querySelectorAll('.statGrid span');
+  const steps = [
+    { els: [lbl[0], el('finalScore')], p: 1.0, sk: 10, cu: [el('finalScore'), G.score, 850] },
+    { els: [lbl[1], el('finalCombo')], p: 0.7, sk: 5, cu: [el('finalCombo'), G.maxCombo, 600, vInt] },
+    { els: [lbl[2], el('finalAcc')], p: 0.7, sk: 5, cu: [el('finalAcc'), acc, 600, vPct] },
+    { els: [lbl[3], el('finalStage')], p: 0.6, sk: 4 },
+    { els: [document.querySelector('.jP')], p: 0.55, sk: 4, cu: [el('cntP'), G.jc.PERFECT, 420, vInt] },
+    { els: [document.querySelector('.jG')], p: 0.55, sk: 4, cu: [el('cntG'), G.jc.GOOD, 420, vInt] },
+    { els: [document.querySelector('.jM')], p: 0.55, sk: 4, cu: [el('cntM'), G.jc.MISS, 420, vInt] },
+    { els: [el('retryBtn')], p: 0.85, sk: 6 },
+    { els: [el('menuBtn')], p: 0, sk: 0 },
+  ];
+
   setTimeout(() => {
     overOverlay.classList.remove('hidden');
     el('overTitle').classList.add('show');
 
-    // 1) grade SLAMS in with a flash + fanfare
+    // grade SLAMS in with flash, fanfare, big screen punch
     setTimeout(() => {
       gradeEl.classList.add('slam');
       if (highGrade) setTimeout(() => gradeEl.classList.add('hi'), 500);
       flashEl.classList.remove('go'); void flashEl.offsetWidth; flashEl.classList.add('go');
       if (AC) fanfare(AC.currentTime, highGrade);
+      shakeScreen(12);
       burstConfetti();
     }, 120);
 
-    // 2) rows pop in one by one — 팍! 팍! 팍!
-    rows.forEach((r, i) => setTimeout(() => r.classList.add('show'), 520 + i * 140));
-
-    // 3) numbers roll up on their own row
-    setTimeout(() => countUp(el('finalScore'), G.score, 900), 560);
-    setTimeout(() => countUp(el('finalCombo'), G.maxCombo, 650), 700);
-    setTimeout(() => countUp(el('finalAcc'), acc, 650, v => Math.round(v) + '%'), 840);
-    setTimeout(() => countUp(el('cntP'), G.jc.PERFECT, 500, v => Math.round(v)), 1100);
-    setTimeout(() => countUp(el('cntG'), G.jc.GOOD, 500, v => Math.round(v)), 1240);
-    setTimeout(() => countUp(el('cntM'), G.jc.MISS, 500, v => Math.round(v)), 1380);
+    // each stat STAMPS onto the screen — 팍! 팍! 팍!
+    steps.forEach((s, i) => setTimeout(() => {
+      s.els.forEach(e => e.classList.add('show'));
+      if (s.p > 0) { stampImpact(s.p); if (s.sk) shakeScreen(s.sk); }
+      if (s.cu) countUp(...s.cu);
+    }, 560 + i * 165));
   }, 500);
 }
 el('startBtn').addEventListener('click', startGame);
