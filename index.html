@@ -370,11 +370,17 @@ const PROG = [ // Am F C G
   { root: 43, arp: [55, 59, 62, 59] },
 ];
 
+let delayBus, delayWet; // tempo-synced echo bus for the grand lead
 function initAudio() {
   if (AC) return;
   AC = new (window.AudioContext || window.webkitAudioContext)();
   master = AC.createGain(); master.gain.value = 0.9; master.connect(AC.destination);
   musicGain = AC.createGain(); musicGain.gain.value = 0.5; musicGain.connect(master);
+  delayBus = AC.createDelay(1); delayBus.delayTime.value = 0.28;
+  const fb = AC.createGain(); fb.gain.value = 0.34;
+  delayWet = AC.createGain(); delayWet.gain.value = 0.2;
+  delayBus.connect(fb); fb.connect(delayBus);
+  delayBus.connect(delayWet); delayWet.connect(master);
   const len = AC.sampleRate;
   noiseBuf = AC.createBuffer(1, len, AC.sampleRate);
   const d = noiseBuf.getChannelData(0);
@@ -692,27 +698,56 @@ function speedUp(delta) {
 }
 
 // ---------- hit-gated melody (backing tracks) ----------
-// A-minor pentatonic phrases, one entry per 8th-note step, 2 measures each.
-// The melody only sounds while the player is landing correct answers.
+// Epic A natural-minor anthem phrases (uses B & F — no pentatonic feel),
+// one entry per 8th-note step, 2 measures each. Only sounds while the
+// player is landing correct answers.
 const MELODY = [
-  [69, null, 72, 74, null, 76, 74, 72, 69, null, 76, null, 79, 76, 74, 72],
-  [76, null, 74, 72, null, 69, 72, 74, 76, null, 79, null, 81, 79, 76, 74],
-  [69, 72, null, 74, 76, null, 74, 72, 74, null, 72, 69, null, 67, 69, null],
+  // rising anthem: climb to the climax, then settle
+  [69, null, 71, 72, 76, null, 74, null, 77, null, 76, 74, 72, null, 71, null],
+  // high drama on top
+  [76, null, 77, 79, 81, null, 79, 77, 76, null, 74, 76, 72, null, 74, null],
+  // sweeping arpeggio run (the flashy one)
+  [69, 72, 76, 81, null, 79, 77, 76, 74, 77, 76, 74, 72, null, 71, 72],
 ];
 function melodyGateOpen(t) {
   if (holdState) return true;                    // holding a long note = performing
   return t - (G.lastCorrectPress || -9) < 1.35;  // stays open ~1.3s per correct hit
 }
-function melodyNote(t, m, vel) {
-  for (const [det, amp] of [[-5, vel], [5, vel * 0.6]]) {
+function grandLead(t, m, vel) { // supersaw stack + sub, into the echo bus
+  const f0 = midi(m);
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(4200, t);
+  lp.frequency.exponentialRampToValueAtTime(1100, t + 0.45);
+  const g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vel, t + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+  lp.connect(g); g.connect(master); g.connect(delayBus);
+  for (const det of [-14, -7, 0, 7, 14]) {
     const o = AC.createOscillator(); o.type = 'sawtooth';
-    o.frequency.value = midi(m); o.detune.value = det;
-    const f = AC.createBiquadFilter(); f.type = 'lowpass';
-    f.frequency.setValueAtTime(3000, t);
-    f.frequency.exponentialRampToValueAtTime(800, t + 0.3);
-    const g = AC.createGain(); env(g, t, amp, 0.34);
-    o.connect(f); f.connect(g); g.connect(master);
-    o.start(t); o.stop(t + 0.4);
+    o.frequency.value = f0; o.detune.value = det;
+    const og = AC.createGain(); og.gain.value = 0.2;
+    o.connect(og); og.connect(lp);
+    o.start(t); o.stop(t + 0.6);
+  }
+  const sub = AC.createOscillator(); sub.type = 'sine'; sub.frequency.value = f0 / 2;
+  const sg = AC.createGain(); sg.gain.value = 0.3;
+  sub.connect(sg); sg.connect(lp);
+  sub.start(t); sub.stop(t + 0.6);
+}
+function grandChord(t, chord) { // wide stab under the lead — the "웅장" part
+  for (const m of chord.arp.slice(0, 3)) {
+    for (const det of [-8, 8]) {
+      const o = AC.createOscillator(); o.type = 'sawtooth';
+      o.frequency.value = midi(m); o.detune.value = det;
+      const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1400;
+      const g = AC.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.05, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+      o.connect(f); f.connect(g); g.connect(master); g.connect(delayBus);
+      o.start(t); o.stop(t + 1.2);
+    }
   }
 }
 
@@ -756,12 +791,14 @@ function scheduleStep(s, t) {
 
   // hit-gated melody over backing tracks: your streak sings the top line
   if (sm && song.backing && G.state === 'playing') {
+    const gateOpen = melodyGateOpen(t);
+    if (gateOpen && inM === 0) grandChord(t, chord);              // stab every measure
+    if (gateOpen && G.combo >= 16 && inM === 4) grandChord(t, chord); // double-time at high combo
     const phrase = MELODY[Math.floor(s / 16) % MELODY.length];
     const m = phrase[s % 16];
-    if (m !== null && melodyGateOpen(t)) {
-      melodyNote(t, m, 0.22);
-      if (G.combo >= 8) melodyNote(t, m + 12, 0.09);  // octave sparkle
-      if (G.combo >= 16) melodyNote(t, m + 7, 0.07);  // fifth stack
+    if (m !== null && gateOpen) {
+      grandLead(t, m, 0.16);
+      if (G.combo >= 8) grandLead(t, m + 12, 0.05);               // octave shimmer
     }
   }
 
@@ -790,6 +827,7 @@ function startMusic() {
   step = 0;
   if (song) startSongPlayback();
   else nextStepTime = AC.currentTime + 0.1;
+  delayBus.delayTime.setValueAtTime(Math.min(0.9, stepDur() * 1.5), AC.currentTime); // dotted-8th echo
   schedTimer = setInterval(schedulerTick, 25);
   logicTimer = setInterval(logicTick, 50);
 }
