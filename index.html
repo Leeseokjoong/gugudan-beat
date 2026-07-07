@@ -565,6 +565,12 @@ function flourish(t) {
 // ---------- songs (real BGM tracks) ----------
 const SONGS = [
   { name: '내장 신스', file: null },
+  // backing tracks (no lead) — correct hits unlock the melody on top
+  { name: 'A Minor Pulse', file: 'music/A Minor Pulse.mp3', backing: true },
+  { name: 'A Minor Pulse v2', file: 'music/A Minor Pulse (1).mp3', backing: true },
+  { name: 'Arcade Fault Line', file: 'music/Arcade Fault Line.mp3', backing: true },
+  { name: 'Arcade Fault Line v2', file: 'music/Arcade Fault Line (1).mp3', backing: true },
+  // full mixes
   { name: 'Beat Circuit', file: 'music/Beat Circuit.mp3' },
   { name: 'Beat Circuit v2', file: 'music/Beat Circuit (1).mp3' },
   { name: 'Neon Overdrive', file: 'music/Neon Overdrive.mp3' },
@@ -685,6 +691,31 @@ function speedUp(delta) {
   }
 }
 
+// ---------- hit-gated melody (backing tracks) ----------
+// A-minor pentatonic phrases, one entry per 8th-note step, 2 measures each.
+// The melody only sounds while the player is landing correct answers.
+const MELODY = [
+  [69, null, 72, 74, null, 76, 74, 72, 69, null, 76, null, 79, 76, 74, 72],
+  [76, null, 74, 72, null, 69, 72, 74, 76, null, 79, null, 81, 79, 76, 74],
+  [69, 72, null, 74, 76, null, 74, 72, 74, null, 72, 69, null, 67, 69, null],
+];
+function melodyGateOpen(t) {
+  if (holdState) return true;                    // holding a long note = performing
+  return t - (G.lastCorrectPress || -9) < 1.35;  // stays open ~1.3s per correct hit
+}
+function melodyNote(t, m, vel) {
+  for (const [det, amp] of [[-5, vel], [5, vel * 0.6]]) {
+    const o = AC.createOscillator(); o.type = 'sawtooth';
+    o.frequency.value = midi(m); o.detune.value = det;
+    const f = AC.createBiquadFilter(); f.type = 'lowpass';
+    f.frequency.setValueAtTime(3000, t);
+    f.frequency.exponentialRampToValueAtTime(800, t + 0.3);
+    const g = AC.createGain(); env(g, t, amp, 0.34);
+    o.connect(f); f.connect(g); g.connect(master);
+    o.start(t); o.stop(t + 0.4);
+  }
+}
+
 // ---------- scheduler ----------
 function stepDur() {
   if (songMode()) return 60 / song.bpm / 2 / song.rate;
@@ -722,6 +753,17 @@ function scheduleStep(s, t) {
   if (layer >= 1) hihat(t + stepDur() / 2, false, 0.055);                                  // 16th hats
   if (layer >= 2 && !sm && inM % 2 === 1) pluck(t, midi(chord.arp[(inM * 3) % 4] + 24), 0.07);
   if (layer >= 3 && (inM === 2 || inM === 6)) noise(t, 0.12, 'highpass', 2200, 0.28);      // clap stack
+
+  // hit-gated melody over backing tracks: your streak sings the top line
+  if (sm && song.backing && G.state === 'playing') {
+    const phrase = MELODY[Math.floor(s / 16) % MELODY.length];
+    const m = phrase[s % 16];
+    if (m !== null && melodyGateOpen(t)) {
+      melodyNote(t, m, 0.22);
+      if (G.combo >= 8) melodyNote(t, m + 12, 0.09);  // octave sparkle
+      if (G.combo >= 16) melodyNote(t, m + 7, 0.07);  // fifth stack
+    }
+  }
 
   // one phrase (question + its answer notes) every 2 measures
   if (s % 16 === 0 && G.state === 'playing') {
@@ -1043,6 +1085,7 @@ function judgeNote(note, verdict, pel, wrongPress, dt) {
   } else {
     if (!playSfx('miss', t, 0.9, 0.5)) buzzMiss(t);
     G.revealUntil = t + 1.6; // linger on the equation after a mistake
+    G.lastCorrectPress = -9; // melody gate slams shut
     G.combo = 0;
     G.hearts--;
     flashJudge(wrongPress ? `오답  ${note.q} = ${note.ans}` : 'MISS', '#f43f5e');
@@ -1542,7 +1585,7 @@ const songGrid = el('songGrid');
 SONGS.forEach((s, i) => {
   const b = document.createElement('button');
   b.className = 'songBtn' + (i === songSel ? ' on' : '');
-  b.innerHTML = `${s.name}<small>${s.file ? '...' : '게임 내장 음악'}</small>`;
+  b.innerHTML = `${s.name}<small>${s.file ? (s.backing ? '반주 + 내가 멜로디 연주' : '완성곡') : '게임 내장 음악'}</small>`;
   b.addEventListener('click', async () => {
     songSel = i;
     [...songGrid.children].forEach((x, j) => x.classList.toggle('on', j === songSel));
@@ -1551,7 +1594,7 @@ SONGS.forEach((s, i) => {
       try {
         initAudio();
         const d = await loadSong(i);
-        b.querySelector('small').textContent = `BPM ${d.bpm}`;
+        b.querySelector('small').textContent = `BPM ${d.bpm}${s.backing ? ' · 연주형' : ''}`;
       } catch (e) {
         b.querySelector('small').textContent = '로드 실패 (서버 필요)';
       }
@@ -1575,7 +1618,7 @@ async function startGame() {
     btn.textContent = 'LOADING...'; btn.disabled = true;
     try {
       const d = await loadSong(songSel);
-      song = { ...d, source: null, rate: 1, anchorT: 0, anchorPos: 0 };
+      song = { ...d, backing: !!SONGS[songSel].backing, source: null, rate: 1, anchorT: 0, anchorPos: 0 };
     } catch (e) { song = null; } // fetch blocked (file://) → fall back to synth
     btn.textContent = 'START'; btn.disabled = false;
   }
