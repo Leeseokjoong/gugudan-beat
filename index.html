@@ -2,13 +2,15 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>GUGUDAN BEAT</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; }
   html,body { height:100%; overflow:hidden; background:#04050a; font-family:'Segoe UI','Malgun Gothic',sans-serif; }
   #app {
-    position:relative; height:100%; max-width:520px; margin:0 auto;
+    position:relative; max-width:520px; margin:0 auto;
+    height:100vh;
+    height:100dvh; /* mobile: exclude browser chrome so the pads stay visible */
     background:linear-gradient(180deg,#06070f 0%,#0a0c1c 55%,#0d0a24 100%);
     display:flex; flex-direction:column; overflow:hidden;
     box-shadow:0 0 80px rgba(70,60,180,.18);
@@ -59,10 +61,17 @@
     100%{opacity:0; transform:translateY(-12px)}
   }
 
-  canvas { display:block; width:100%; flex:1; }
+  canvas { display:block; width:100%; flex:1; min-height:0; }
 
   /* ===== pads ===== */
-  #pads { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; padding:8px 10px 16px; z-index:5; }
+  #pads {
+    display:grid; grid-template-columns:repeat(4,1fr); gap:6px; z-index:5;
+    padding:8px 10px calc(12px + env(safe-area-inset-bottom));
+  }
+  @media (max-height:700px) {
+    .pad { height:54px !important; font-size:16px; }
+    #pads { padding-top:6px; }
+  }
   .pad {
     position:relative; height:68px; border-radius:8px;
     border:1px solid rgba(255,255,255,.10); border-top:3px solid var(--lc);
