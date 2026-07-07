@@ -1307,6 +1307,20 @@ function draw(ts) {
           const bw2 = (w - 14) * s;
           const bh2 = Math.max(16, 48 * s);
           ctx.save();
+          { // light trail behind the banner
+            const pB = Math.max(0, p - 0.2);
+            const sB = perspS(pB), yB = perspY(sB);
+            const col = n.reveal ? '#34d399' : '#8aa0ff';
+            const tg = ctx.createLinearGradient(0, y, 0, yB);
+            tg.addColorStop(0, col + '30');
+            tg.addColorStop(1, col + '00');
+            ctx.fillStyle = tg;
+            ctx.beginPath();
+            ctx.moveTo(w / 2 - bw2 / 2, y); ctx.lineTo(w / 2 + bw2 / 2, y);
+            ctx.lineTo(w / 2 + (w - 14) * sB * 0.35, yB);
+            ctx.lineTo(w / 2 - (w - 14) * sB * 0.35, yB);
+            ctx.closePath(); ctx.fill();
+          }
           ctx.shadowBlur = 18 * s;
           ctx.shadowColor = n.reveal ? '#34d399' : '#8aa0ff';
           const g = ctx.createLinearGradient(0, y - bh2 / 2, 0, y + bh2 / 2);
@@ -1384,6 +1398,19 @@ function draw(ts) {
       const tw = (w / 4) * s * 0.84;
       const th = Math.max(15, 38 * s);
       ctx.save();
+      { // Tron-style light trail streaming back toward the horizon
+        const pB = Math.max(0, p - 0.26);
+        const sB = perspS(pB), yB = perspY(sB), xB = laneCX(n.lane, sB);
+        const hwHead = tw * 0.34, hwBack = (w / 4) * sB * 0.84 * 0.08;
+        const tg = ctx.createLinearGradient(x, y, xB, yB);
+        tg.addColorStop(0, col + '66');
+        tg.addColorStop(1, col + '00');
+        ctx.fillStyle = tg;
+        ctx.beginPath();
+        ctx.moveTo(x - hwHead, y); ctx.lineTo(x + hwHead, y);
+        ctx.lineTo(xB + hwBack, yB); ctx.lineTo(xB - hwBack, yB);
+        ctx.closePath(); ctx.fill();
+      }
       if (n.long) { // perspective tail ribbon
         const pT = p - n.holdDur / n.fallDur;
         const s2 = perspS(Math.max(0, pT)), y2 = perspY(s2);
