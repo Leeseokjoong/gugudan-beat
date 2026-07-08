@@ -149,9 +149,9 @@
   }
   .songBtn.on { border-color:#f472b6; color:#ffb3d9; box-shadow:0 0 10px rgba(244,114,182,.35); }
   .songBtn small { display:block; font-size:10px; color:#3d4468; font-weight:600; }
-  #diffRow { display:flex; gap:6px; }
+  #diffRow { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; max-width:320px; }
   .diffBtn {
-    padding:9px 20px; border-radius:8px; border:1px solid rgba(255,255,255,.12);
+    padding:9px 16px; border-radius:8px; border:1px solid rgba(255,255,255,.12);
     background:#0c0e1e; color:#5a6494; font-size:13px; font-weight:700; cursor:pointer;
   }
   .diffBtn.on { border-color:#22d3ee; color:#7de6f7; box-shadow:0 0 10px rgba(34,211,238,.3); }
@@ -359,9 +359,10 @@
       <div id="danGrid"></div>
       <div class="sectionLabel">— 시작 템포 —</div>
       <div id="diffRow">
-        <button class="diffBtn" data-bpm="88">느리게</button>
-        <button class="diffBtn on" data-bpm="104">보통</button>
-        <button class="diffBtn" data-bpm="122">빠르게</button>
+        <button class="diffBtn" data-bpm="60" data-rate="0.6">🐢 아주 느리게</button>
+        <button class="diffBtn" data-bpm="76" data-rate="0.76">느리게</button>
+        <button class="diffBtn on" data-bpm="104" data-rate="1">보통</button>
+        <button class="diffBtn" data-bpm="122" data-rate="1.15">빠르게</button>
       </div>
     </div>
 
@@ -416,7 +417,7 @@ const LANE_COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#fbbf24'];
 const G = {
   state: 'idle',            // idle | playing | over
   mode: 'course',           // course | free
-  bpm: 96, baseBpm: 104,
+  bpm: 96, baseBpm: 104, baseRate: 1,
   score: 0, combo: 0, maxCombo: 0,
   hearts: 5, correct: 0, total: 0,
   jc: { PERFECT: 0, GOOD: 0, MISS: 0 },
@@ -1763,6 +1764,7 @@ document.querySelectorAll('.diffBtn').forEach(b => {
     document.querySelectorAll('.diffBtn').forEach(x => x.classList.remove('on'));
     b.classList.add('on');
     G.baseBpm = +b.dataset.bpm;
+    G.baseRate = +b.dataset.rate;
   });
 });
 
@@ -1824,9 +1826,7 @@ async function startGame() {
     } catch (e) { song = null; } // fetch blocked (file://) → fall back to synth
     btn.textContent = 'START'; btn.disabled = false;
   }
-  if (song && G.mode === 'free') { // free-mode tempo picker → playback rate
-    song.rate = G.baseBpm <= 88 ? 0.9 : G.baseBpm >= 122 ? 1.12 : 1;
-  }
+  if (song && G.mode === 'free') song.rate = G.baseRate; // tempo picker → playback rate
 
   Object.assign(G, {
     state: 'playing',
